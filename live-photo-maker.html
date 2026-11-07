@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Video → Live Photo</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1c1b1a;--mute:#6b6862;--line:#e3e0d9;--acc:#2f6bff;--accink:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141413;--card:#1e1e1c;--ink:#f1efe9;--mute:#a09c93;--line:#34332f;--acc:#6b95ff;--accink:#0d1220;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141413;--card:#1e1e1c;--ink:#f1efe9;--mute:#a09c93;--line:#34332f;--acc:#6b95ff;--accink:#0d1220;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:640px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:26px;margin:0 0 4px}
+p.sub{margin:0 0 20px;color:var(--mute)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:16px}
+.drop{display:block;text-align:center;border:2px dashed var(--line);border-radius:14px;padding:36px 12px;cursor:pointer;color:var(--mute)}
+.drop.on{border-color:var(--acc)}
+.drop b{color:var(--ink)}
+input[type=file]{display:none}
+video,canvas.prev{width:100%;max-height:50vh;border-radius:12px;background:#000;display:block}
+label{display:block;font-size:14px;color:var(--mute);margin:14px 0 4px}
+label span{color:var(--ink);float:right}
+input[type=range],select{width:100%}
+select{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button{font:inherit;border:0;border-radius:10px;padding:12px 16px;background:var(--acc);color:var(--accink);font-weight:600;cursor:pointer}
+button.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.hide{display:none}
+.msg{color:var(--mute);font-size:14px;margin-top:10px}
+.out img{width:100%;border-radius:12px;display:block;margin-bottom:12px}
+.note{font-size:13px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>Video → Live Photo</h1>
+<p class="sub">Pick a video, choose a moment, and export a short looping clip with a cover still.</p>
+
+<div class="card">
+  <label class="drop" id="drop" for="file"><b>Choose a video</b><br>or drop one here</label>
+  <input type="file" id="file" accept="video/*">
+</div>
+
+<div class="card hide" id="editor">
+  <video id="v" muted playsinline></video>
+  <label>Clip start <span id="sv">0.0s</span></label>
+  <input type="range" id="start" min="0" max="10" step="0.1" value="0">
+  <label>Clip length</label>
+  <select id="len"><option value="1.5">1.5 seconds</option><option value="2">2 seconds</option><option value="3" selected>3 seconds (like Apple)</option></select>
+  <label>Cover frame <span id="cv">0.0s</span></label>
+  <input type="range" id="cover" min="0" max="3" step="0.1" value="1.5">
+  <div class="row">
+    <button id="play" class="alt">Preview clip</button>
+    <button id="make">Make Live Photo</button>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="card out hide" id="out">
+  <img id="still" alt="Cover still">
+  <div class="row">
+    <button id="dMotion">Save Motion Photo (.jpg)</button>
+    <button id="dStill" class="alt">Cover (.jpg)</button>
+    <button id="dClip" class="alt">Clip</button>
+  </div>
+  <p class="note">The Motion Photo is a single JPEG with the clip embedded, which Google Photos and many Android phones play as a live photo. For an iPhone Live Photo, Apple needs a still and a clip paired by hidden metadata that a browser can’t write, so save the cover and clip and combine them with a free app such as intoLive.</p>
+</div>
+</main>
+
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i)};
+  var v=$('v'),start=$('start'),cover=$('cover'),len=$('len'),msg=$('msg');
+  var url=null,res={};
+  function show(){ $('sv').textContent=(+start.value).toFixed(1)+'s'; $('cv').textContent=(+cover.value).toFixed(1)+'s'; }
+  function setRanges(){
+    var L=+len.value, d=v.duration||0;
+    start.max=Math.max(0,d-L).toFixed(1);
+    if(+start.value>+start.max) start.value=start.max;
+    cover.max=Math.min(L,d).toFixed(1);
+    if(+cover.value>+cover.max) cover.value=(cover.max/2).toFixed(1);
+    show();
+  }
+  function seek(t){ return new Promise(function(r){ var h=function(){v.removeEventListener('seeked',h);r()}; v.addEventListener('seeked',h); v.currentTime=t; }); }
+  function load(f){
+    if(!f||f.type.indexOf('video')!==0){msg.textContent='Please choose a video file.';return}
+    if(url) URL.revokeObjectURL(url);
+    url=URL.createObjectURL(f); v.src=url;
+    v.onloadedmetadata=function(){ $('editor').classList.remove('hide'); $('out').classList.add('hide'); start.value=0; setRanges(); seek(0); msg.textContent=''; };
+    v.onerror=function(){msg.textContent='This browser can’t read that video format.'};
+  }
+  $('file').onchange=function(e){load(e.target.files[0])};
+  var drop=$('drop');
+  ['dragenter','dragover'].forEach(function(n){drop.addEventListener(n,function(e){e.preventDefault();drop.classList.add('on')})});
+  ['dragleave','drop'].forEach(function(n){drop.addEventListener(n,function(e){e.preventDefault();drop.classList.remove('on')})});
+  drop.addEventListener('drop',function(e){load(e.dataTransfer.files[0])});
+  start.oninput=function(){show();seek(+start.value+(+cover.value))};
+  cover.oninput=function(){show();seek(+start.value+(+cover.value))};
+  len.onchange=function(){setRanges();seek(+start.value)};
+  $('play').onclick=async function(){
+    await seek(+start.value); v.play();
+    var end=+start.value+(+len.value);
+    var iv=setInterval(function(){ if(v.currentTime>=end||v.ended){v.pause();clearInterval(iv)} },50);
+  };
+
+  function pickMime(){
+    var c=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+    for(var i=0;i<c.length;i++){ if(window.MediaRecorder&&MediaRecorder.isTypeSupported(c[i])) return c[i]; }
+    return '';
+  }
+  function frameBlob(c){ return new Promise(function(r){c.toBlob(r,'image/jpeg',0.92)}); }
+
+  async function make(){
+    var mime=pickMime();
+    if(!mime){msg.textContent='This browser can’t record video clips. Try Chrome, Edge or Safari.';return}
+    $('make').disabled=true; $('out').classList.add('hide');
+    var s=+start.value, L=+len.value, ct=s+(+cover.value);
+    var scale=Math.min(1,1280/Math.max(v.videoWidth,v.videoHeight));
+    var w=Math.round(v.videoWidth*scale/2)*2, h=Math.round(v.videoHeight*scale/2)*2;
+    var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    var ctx=cv.getContext('2d');
+    msg.textContent='Capturing cover…';
+    await seek(ct); ctx.drawImage(v,0,0,w,h);
+    var still=await frameBlob(cv);
+    msg.textContent='Recording clip (about '+L+' seconds)…';
+    await seek(s);
+    var stream=cv.captureStream(30);
+    var rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:6000000});
+    var chunks=[]; rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data)};
+    var done=new Promise(function(r){rec.onstop=r});
+    rec.start(); v.play();
+    await new Promise(function(r){
+      (function tick(){
+        ctx.drawImage(v,0,0,w,h);
+        if(v.currentTime>=s+L||v.ended){r();return}
+        requestAnimationFrame(tick);
+      })();
+    });
+    v.pause(); rec.stop(); await done;
+    var isMp4=mime.indexOf('mp4')>-1;
+    var clip=new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'});
+    var stillBuf=new Uint8Array(await still.arrayBuffer());
+    var clipBuf=new Uint8Array(await clip.arrayBuffer());
+    res={still:still,clip:clip,isMp4:isMp4,motion:isMp4?buildMotion(stillBuf,clipBuf,Math.round((ct-s)*1e6)):null};
+    $('still').src=URL.createObjectURL(still);
+    $('dMotion').classList.toggle('hide',!isMp4);
+    $('dClip').textContent='Clip (.'+(isMp4?'mp4':'webm')+')';
+    $('out').classList.remove('hide');
+    msg.textContent=isMp4?'':'This browser records WebM, so a Motion Photo isn’t available. Chrome and Safari can make one.';
+    $('make').disabled=false;
+    $('out').scrollIntoView({behavior:'smooth'});
+  }
+  $('make').onclick=function(){make().catch(function(e){msg.textContent='Something went wrong: '+e.message;$('make').disabled=false})};
+
+  function buildMotion(jpg,mp4,ts){
+    var xmp='<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" xmlns:Container="http://ns.google.com/photos/1.0/container/" xmlns:Item="http://ns.google.com/photos/1.0/container/item/" GCamera:MotionPhoto="1" GCamera:MotionPhotoVersion="1" GCamera:MotionPhotoPresentationTimestampUs="'+ts+'"><Container:Directory><rdf:Seq><rdf:li rdf:parseType="Resource"><Container:Item Item:Mime="image/jpeg" Item:Semantic="Primary" Item:Length="0" Item:Padding="0"/></rdf:li><rdf:li rdf:parseType="Resource"><Container:Item Item:Mime="video/mp4" Item:Semantic="MotionPhoto" Item:Length="'+mp4.length+'" Item:Padding="0"/></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+    var hdr=new TextEncoder().encode('http://ns.adobe.com/xap/1.0/\0');
+    var body=new TextEncoder().encode(xmp);
+    var segLen=2+hdr.length+body.length;
+    var out=new Uint8Array(jpg.length+4+segLen+mp4.length);
+    out.set(jpg.subarray(0,2),0);
+    var p=2; out[p++]=0xFF; out[p++]=0xE1; out[p++]=segLen>>8; out[p++]=segLen&255;
+    out.set(hdr,p); p+=hdr.length; out.set(body,p); p+=body.length;
+    out.set(jpg.subarray(2),p); p+=jpg.length-2;
+    out.set(mp4,p);
+    return new Blob([out],{type:'image/jpeg'});
+  }
+
+  async function save(blob,name){
+    try{
+      var d=(window.claude&&claude.use)?await claude.use('downloads'):null;
+      if(d){ await d.save({filename:name,data:blob}); return; }
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob); a.download=name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ if(e&&e.code!=='declined') msg.textContent='Couldn’t save: '+(e.message||e); }
+  }
+  $('dMotion').onclick=function(){save(res.motion,'MotionPhoto.jpg')};
+  $('dStill').onclick=function(){save(res.still,'cover.jpg')};
+  $('dClip').onclick=function(){save(res.clip,res.isMp4?'clip.mp4':'clip.webm')};
+})();
+</script>
+</body>
+</html>
